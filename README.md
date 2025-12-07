@@ -1,21 +1,47 @@
-# Run <TOOL> via pre-commit + reviewdog
+# Run ruff via pre-commit + reviewdog
 
-> Template README — replace `<TOOL>` and `<HOOK_ID>` with your actual tool and pre-commit hook name.
+This GitHub Action runs [`ruff`](https://docs.astral.sh/ruff/) via [`pre-commit`](https://pre-commit.com/) on a ref range and reports:
 
-This GitHub Action runs a single [`pre-commit`](https://pre-commit.com/) hook on a diff range and reports results to pull requests
+- **Diagnostics** (RDJSON) as inline comments
+- **Suggested fixes** (formatting / autofixes) as a diff review
+
 using [reviewdog](https://github.com/reviewdog/reviewdog).
 
-Typical use case:
+It combines:
 
-- Run the `<HOOK_ID>` pre-commit hook (e.g. `actionlint-oneline`)
-- Annotate problems directly on the PR diff
-- Fail the job if violations are found
+- `ruff-check-rdjson` (manual, RDJSON output, `--fix`)
+- `ruff-format` (formatting)
 
 ## Requirements
 
-- A `.pre-commit-config.yaml` in your repository with the `<HOOK_ID>` hook enabled
+Add the `ruff-pre-commit` hooks to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.7
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+      - id: ruff-check
+        alias: ruff-check-rdjson
+        args: ["--fix", "-q", "--output-format=rdjson"]
+        stages: [manual]
+````
+
+You also need:
+
 - GitHub Actions enabled on the repository
 - `secrets.GITHUB_TOKEN` available (default on GitHub-hosted runners)
+- `jq` installed on the runner (already present on `ubuntu-latest`)
+- `actions/checkout` fetching enough history to include both `from-ref` and `to-ref`, for example:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+```
 
 ## Inputs
 
@@ -27,45 +53,56 @@ Typical use case:
 
 ## Outputs
 
-| Name       | Description                                  |
-|------------|----------------------------------------------|
-| `exitcode` | Exit code of the `<HOOK_ID>` pre-commit hook |
+| Name       | Description                                                 |
+|------------|-------------------------------------------------------------|
+| `exitcode` | Combined exit code of `ruff-check-rdjson` and `ruff-format` |
 
 ## Usage
 
-In your workflow (example for a pull request):
+Example workflow for pull requests:
 
 ```yaml
-name: Lint with <TOOL>
+name: Lint Python with ruff
 
 on:
   pull_request:
 
 jobs:
-  lint:
+  ruff:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Run <TOOL> via pre-commit + reviewdog
-        uses: <OWNER>/<REPO>@v1
+      - name: Run ruff via pre-commit + reviewdog
+        uses: leinardi/gha-pre-commit-ruff-reviewdog@v1
         with:
           from-ref: ${{ github.event.pull_request.base.sha }}
           to-ref: ${{ github.event.pull_request.head.sha }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-````
+```
+
+This will:
+
+1. Run `ruff-check-rdjson` on files changed between `from-ref` and `to-ref`, capture RDJSON, normalize paths, strip suggestions, and report
+   diagnostics via reviewdog.
+2. Run `ruff-format` on the same range.
+3. Generate a diff of fixes and post it as a review (`ruff (fixes)`).
+4. Fail the job if either step reports issues.
 
 ## Versioning
 
 It’s recommended to pin to the major version:
 
 ```yaml
-uses: <OWNER>/<REPO>@v1
+uses: leinardi/gha-pre-commit-ruff-reviewdog@v1
 ```
 
 For fully reproducible behavior, pin to an exact tag:
 
 ```yaml
-uses: <OWNER>/<REPO>@v1.0.0
+uses: leinardi/gha-pre-commit-ruff-reviewdog@v1.0.0
 ```
